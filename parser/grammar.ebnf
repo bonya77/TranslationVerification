@@ -1,0 +1,62 @@
+module = declaration { declaration } EOF ;
+declaration = identifier "(" parameters ")" definitionTail
+            | "function" identifier "(" parameters ")" functionTail ;
+definitionTail = "=>" expression [ ";" ] | functionTail ;
+functionTail = [ "requires" expression ] "returns" variableDef { "," variableDef }
+               [ "ensures" expression ] [ "uses" localVarDef { "," localVarDef } ] statement ;
+parameters = [ variableDef { "," variableDef } ] ;
+variableDef = identifier ":" type ;
+localVarDef = identifier [ ":" type ] ;
+type = "int" [ "[" "]" ] ;
+
+statement = "{" { statement } "}"
+          | "if" "(" expression ")" statement [ "else" statement ]
+          | "while" "(" expression ")" [ "invariant" expression ] statement
+          | "assert" expression ";"
+          | "assume" expression ";"
+          | identifier assignmentTail ;
+assignmentTail = { "[" expression "]" } "=" expression ";"
+               | "," identifier { "," identifier } "=" expression ";" ;
+
+expression = disjunction [ "->" expression ] ;
+disjunction = conjunction { "or" conjunction } ;
+conjunction = comparison { "and" comparison } ;
+comparison = "not" comparison | sum [ comparisonOperator sum ] ;
+comparisonOperator = "==" | "!=" | "<" | "<=" | ">" | ">=" ;
+sum = product { ("+" | "-") product } ;
+product = unary { ("*" | "/") unary } ;
+unary = "-" unary | primary ;
+primary = number | "true" | "false" | "(" expression ")"
+        | identifier nameTail
+        | "length" "(" arguments ")"
+        | ("forall" | "exists") "(" variableDef "|" expression ")" ;
+nameTail = "(" arguments ")" | { "[" expression "]" } ;
+arguments = [ expression { "," expression } ] ;
+
+identifier = letter { letter | digit } ;
+number = "0" | nonzeroDigit { digit } ;
+
+Правила выбора и ограничения:
+
+1. expression задаёт общую грамматику. Категория поддерева проверяется
+   перед включением в конкретную конструкцию, без разрешения имён и типов.
+   Арифметика: числа, имена, вызовы с арифметическими аргументами, индексирование,
+   унарный минус и + - * /. Аргументы и индексы всегда арифметические.
+   Условие: true/false, сравнения арифметики, not/and/or/->.
+   Предикат: true/false, сравнения, not/and/or, кванторы и ссылки на формулы.
+   Тело квантора является предикатом; length не является ссылкой на формулу.
+2. requires, ensures, invariant, assert, assume и тело формулы требуют предиката.
+   if и while требуют условия. Присваивание требует арифметики.
+   Правая часть группового присваивания должна быть вызовом.
+3. Приоритет от сильного к слабому: унарный -, * /, + -, сравнения, not, and, or, ->.
+   + - * / and or левоассоциативны, -> правоассоциативна.
+   Сравнения не образуют цепочек, например a < b < c недопустимо.
+4. else всегда забирает ближайший if. Это явное разрешение конфликта
+   FIRST(else statement) с FOLLOW необязательного else.
+5. Остальные альтернативы выбираются по текущему токену после факторизации:
+   definitionTail: => либо requires/returns;
+   statement: { / if / while / assert / assume / identifier;
+   assignmentTail: [ или = либо запятая;
+   nameTail: ( либо [ или пустое продолжение.
+   Повторения завершаются при токене вне FIRST их продолжения;
+   обязательные закрывающие токены проверяются expect.

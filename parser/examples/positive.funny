@@ -1,0 +1,14 @@
+ordered(a: int, b: int) => forall(i: int | a <= b and i >= 0);
+
+function sum(a: int, b: int[]) requires a >= 0 returns r: int ensures ordered(a, r) uses i: int {
+  r = a + b[0] * 2;
+  b[i] = r;
+  if (r > 0 and not false) {
+    assert r == r;
+  } else {
+    assume r >= 0;
+  }
+  while (i < length(b)) invariant i >= 0 {
+    i = i + 1;
+  }
+}

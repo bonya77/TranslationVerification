@@ -1,0 +1,1 @@
+(module (function f (parameters) (requires true) (returns (r int)) (ensures false) (uses) (block (assign (targets r) (+ 1 (* 2 3))))))
