@@ -1,0 +1,23 @@
+nonnegative(x: int) => x >= 0;
+bounded(a: int[], n: int) => forall(i: int | not (i >= 0 and i < length(a)) or a[i] <= n);
+
+pair(a: int[]) returns n: int, copy: int[] {
+  n = length(a);
+  copy = a;
+}
+
+sum(a: int[]) requires length(a) >= 0 returns r: int ensures nonnegative(r) uses copy, n, i: int {
+  n, copy = pair(a);
+  i = 0;
+  r = 0;
+  while (i < n) invariant i >= 0 {
+    if (copy[i] > 0) {
+      r = r + copy[i];
+    } else {
+      assume copy[i] <= 0;
+    }
+    copy[i] = 0;
+    i = i + 1;
+  }
+  assert bounded(copy, 0);
+}

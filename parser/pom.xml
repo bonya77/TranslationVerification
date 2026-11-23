@@ -21,21 +21,32 @@
     </repositories>
 
     <build>
-        <sourceDirectory>${project.basedir}/..</sourceDirectory>
         <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.6.1</version>
+                <executions>
+                    <execution>
+                        <id>add-lexer-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>${project.basedir}/../regex_dfa/main/java</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.11.0</version>
                 <configuration>
                     <release>17</release>
-                    <includes>
-                        <include>parser/src/main/java/**/*.java</include>
-                        <include>regex_dfa/main/java/**/*.java</include>
-                    </includes>
-                    <testIncludes>
-                        <testInclude>**/*.java</testInclude>
-                    </testIncludes>
                 </configuration>
             </plugin>
             <plugin>

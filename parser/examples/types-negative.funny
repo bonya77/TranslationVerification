@@ -1,0 +1,19 @@
+positive(x: int) => x > 0;
+identity(x: int) returns r: int { r = x; }
+
+broken(a: int[]) returns r: int uses x, y: int, y: int {
+  ghost = 1;
+  y = x + 1;
+  x = a;
+  x = 1;
+  a[0] = 2;
+  y = identity();
+  y = identity(a);
+  y = length(1);
+  assert identity(1);
+  r = positive(1);
+}
+
+uninferred() returns r: int uses forgotten {
+  r = 0;
+}

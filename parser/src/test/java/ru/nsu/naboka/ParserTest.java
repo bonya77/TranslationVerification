@@ -25,6 +25,7 @@ public class ParserTest {
         assertFalse(source, new Parser(source).parse().errors().isEmpty());
     }
 
+    // AST минимальной программы должен точно совпадать с сохранённым эталоном.
     @Test
     public void matchesAstSnapshot() throws Exception {
         String source = Files.readString(Path.of("examples/minimal.funny"));
@@ -32,11 +33,13 @@ public class ParserTest {
         assertEquals(expected, AstPrinter.print(valid(source).module()));
     }
 
+    // Пример со всеми видами операторов должен разбираться без синтаксических ошибок.
     @Test
     public void parsesExampleWithAllStatements() throws Exception {
         valid(Files.readString(Path.of("examples/positive.funny")));
     }
 
+    // Сообщения об ошибках отрицательного примера должны совпадать с эталоном, включая позиции.
     @Test
     public void matchesDiagnosticSnapshot() throws Exception {
         String source = Files.readString(Path.of("examples/negative.funny"));
@@ -44,11 +47,13 @@ public class ParserTest {
         assertEquals(expected, String.join("\n", new Parser(source).parse().errors()));
     }
 
+    // Допустимы оба варианта определения функции: с ключевым словом function и без него.
     @Test
     public void parsesBareAndPrefixedFunctions() {
         assertEquals(2, valid("f() returns r: int {} function g() returns r: int {}").module().declarations().size());
     }
 
+    // При пропуске контрактов парсер подставляет requires=true, ensures=false и invariant=true.
     @Test
     public void suppliesContractAndInvariantDefaults() {
         Function function = (Function) valid("f() returns r: int while (true) {}").module().declarations().get(0);
@@ -57,6 +62,7 @@ public class ParserTest {
         assertTrue(((Bool) ((While) function.body()).invariant()).value());
     }
 
+    // Разбираются локальные с аннотацией и без неё, несколько результатов и тело без фигурных скобок.
     @Test
     public void parsesTypedAndInferredLocalsWithUnbracedBody() {
         Function function = (Function) valid("f(x: int[]) returns a: int, b: int[] uses i, j: int a = 1;")
@@ -66,12 +72,14 @@ public class ParserTest {
         assertEquals(2, function.returns().size());
     }
 
+    // Умножение и унарный минус связывают сильнее вычитания; цепочка вычитаний группируется слева.
     @Test
     public void preservesArithmeticPrecedenceAndAssociativity() {
         Assignment assignment = (Assignment) body("r = 10 - 3 - 2 * -4;");
         assertEquals("(- (- 10 3) (* 2 (- 4)))", AstPrinter.print(assignment.value()));
     }
 
+    // Скобки вокруг арифметики и сравнений внутри предиката должны давать правильное дерево.
     @Test
     public void parsesArithmeticGroupsInsidePredicates() {
         assertEquals("(assert (< (+ x 1) 5))", AstPrinter.print(body("assert (x + 1) < 5;")));
@@ -80,12 +88,14 @@ public class ParserTest {
         body("assert f(x) + 1 > 0 and f(x);");
     }
 
+    // Проверяются приоритеты not, and, or и группировка цепочки импликаций справа.
     @Test
     public void preservesBooleanPrecedenceAndRightAssociativeImplication() {
         If statement = (If) body("if (not x > 0 and false or true -> false -> true) {} ");
         assertEquals("(-> (or (and (not (> x 0)) false) true) (-> false true))", AstPrinter.print(statement.condition()));
     }
 
+    // Без фигурных скобок else должен относиться к ближайшему незавершённому if.
     @Test
     public void associatesElseWithNearestIf() {
         If outer = (If) body("if (true) if (false) r = 1; else r = 2;");
@@ -93,6 +103,7 @@ public class ParserTest {
         assertNotNull(((If) outer.thenBranch()).elseBranch());
     }
 
+    // Формулы разбираются с необязательным разделителем, вложенными кванторами и вызовами в контрактах.
     @Test
     public void parsesFormulasWithoutSeparatorsAndNestedQuantifiers() {
         Parser.Result result = valid("p(x: int) => exists(i: int | forall(j: int | j >= i)) q() => true f() returns r: int ensures p(r) {}");
@@ -101,6 +112,7 @@ public class ParserTest {
         valid("p() => true; f() requires p() returns r: int {}");
     }
 
+    // Групповое присваивание сохраняет цели, а запись в массив преобразуется во вложенные узлы set.
     @Test
     public void parsesTupleAssignmentAndNestedArrayUpdates() {
         Assignment tuple = (Assignment) body("x, y = f(1, a[2]);");
@@ -113,6 +125,7 @@ public class ParserTest {
         assertEquals("(set a i 7)", AstPrinter.print(single.value()));
     }
 
+    // Позиции токенов учитывают пропущенные комментарии, табуляцию и переводы строк CR, LF, CRLF.
     @Test
     public void tracksPositionsAcrossSkippedTriviaAndLineEndings() {
         Lexer.Result result = Lexer.scan("// one\r\n\tx\r y\n+");
@@ -122,6 +135,7 @@ public class ParserTest {
         assertEquals("4:1", result.tokens().get(2).location());
     }
 
+    // Лексер выбирает самый длинный токен и отличает ключевое слово if от идентификатора iffy.
     @Test
     public void usesLongestMatchAndKeywordBoundaries() {
         Lexer.Result result = Lexer.scan("if iffy == = -> - => / // comment");
@@ -129,6 +143,7 @@ public class ParserTest {
         assertEquals("IDENT", result.tokens().get(1).kind());
     }
 
+    // Недопустимые символы дают ошибки с позициями; число 01 разбивается на два числовых токена.
     @Test
     public void reportsLexicalErrorsAtTheirPositions() {
         invalid("f() returns r: int { r = 1 @; }");
@@ -137,6 +152,7 @@ public class ParserTest {
         assertEquals(3, Lexer.scan("01").tokens().size());
     }
 
+    // Пустая программа, лишние токены и ошибочные присваивания отклоняются без зависания.
     @Test(timeout = 2000)
     public void rejectsEmptyInputExtraTokensAndWrongOperators() {
         for (String source : new String[]{"", " // empty", "}", "f() returns r: int {} ;",
@@ -144,6 +160,7 @@ public class ParserTest {
                 "f() returns r: int { r = ; }", "f() returns r: int { r = 1 +; }"}) invalid(source);
     }
 
+    // Незакрытые скобки и отсутствие обязательных аннотаций параметров или результатов дают ошибки.
     @Test(timeout = 2000)
     public void rejectsUnclosedBracketsAndMissingTypes() {
         for (String source : new String[]{"f(x: int returns r: int {}", "f() returns r: int {",
@@ -151,6 +168,7 @@ public class ParserTest {
                 "f(x) returns r: int {}", "f() returns r {}"}) invalid(source);
     }
 
+    // Парсер отвергает выражения, запрещённые в данной синтаксической категории грамматикой HW2.
     @Test
     public void rejectsWrongExpressionCategories() {
         for (String statement : new String[]{"r = true;", "assert x;", "if (f()) {}", "assert true -> false;",
@@ -160,6 +178,7 @@ public class ParserTest {
         }
     }
 
+    // После синтаксической ошибки разбор продолжается со следующих операторов и определений.
     @Test(timeout = 2000)
     public void recoversToLaterStatementsAndDeclarations() {
         Parser.Result result = new Parser("f() returns r: int { r = ; assert true; } g() returns r: int {}").parse();
@@ -171,6 +190,7 @@ public class ParserTest {
         assertEquals("g", ((Function) result.module().declarations().get(0)).name());
     }
 
+    // На 500 случайных последовательностях токенов парсер завершается без исключений и зависания.
     @Test(timeout = 5000)
     public void finishesOnRandomMalformedInputs() {
         String[] words = {"f", "function", "returns", "int", "assert", "if", "else", "while", "not", "forall",
