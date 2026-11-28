@@ -4,6 +4,7 @@ import org.junit.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Random;
 
 import static org.junit.Assert.*;
@@ -123,6 +124,22 @@ public class ParserTest {
         assertEquals("(set a i (set (index a i) j 42))", AstPrinter.print(array.value()));
         Assignment single = (Assignment) body("a[i] = 7;");
         assertEquals("(set a i 7)", AstPrinter.print(single.value()));
+    }
+
+    @Test
+    public void matchesArrayUpdateTokenAndAstSnapshots() {
+        String statement = "b[i] = a[i] + 1;";
+        Lexer.Result lexed = Lexer.scan(statement);
+        assertTrue(lexed.errors().isEmpty());
+        assertEquals(List.of(
+                new Token("IDENT", "b", 0, 1, 1), new Token("SYMBOL", "[", 1, 1, 2),
+                new Token("IDENT", "i", 2, 1, 3), new Token("SYMBOL", "]", 3, 1, 4),
+                new Token("SYMBOL", "=", 5, 1, 6), new Token("IDENT", "a", 7, 1, 8),
+                new Token("SYMBOL", "[", 8, 1, 9), new Token("IDENT", "i", 9, 1, 10),
+                new Token("SYMBOL", "]", 10, 1, 11), new Token("SYMBOL", "+", 12, 1, 13),
+                new Token("INT", "1", 14, 1, 15), new Token("SYMBOL", ";", 15, 1, 16),
+                new Token("EOF", "<EOF>", 16, 1, 17)), lexed.tokens());
+        assertEquals("(assign (targets b) (set b i (+ (index a i) 1)))", AstPrinter.print(body(statement)));
     }
 
     // Позиции токенов учитывают пропущенные комментарии, табуляцию и переводы строк CR, LF, CRLF.

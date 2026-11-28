@@ -1,0 +1,38 @@
+bounds(a: int[]) => forall(i: int | i < 0 or i >= length(a) or a[i] == a[i]);
+
+factorial(n: int) requires n >= 0 returns result: int ensures result >= 1 {
+  if (n <= 1) result = 1;
+  else result = n * factorial(n - 1);
+}
+
+updated(a: int[], i: int, value: int) returns b: int[] {
+  b = a;
+  b[i] = value;
+}
+
+details(a: int[], i: int) returns old: int, changed: int, size: int uses b {
+  b = updated(a, i, a[i] + 1);
+  old = a[i];
+  changed = b[i];
+  size = length(b);
+}
+
+summary(a: int[], i: int) returns result: int uses old, changed, size {
+  old, changed, size = details(a, i);
+  result = changed * size - old;
+}
+
+sum(a: int[]) requires bounds(a) returns result: int ensures false uses i {
+  result = 0;
+  i = 0;
+  while (i < length(a)) invariant false {
+    result = result + a[i];
+    i = i + 1;
+  }
+  assert false;
+  assume false;
+}
+
+divide(a: int, b: int) returns result: int {
+  result = a / b;
+}
