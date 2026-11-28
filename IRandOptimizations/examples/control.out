@@ -1,0 +1,120 @@
+=== IR до оптимизаций ===
+fun pair($x:int) -> (int, int)
+L0:
+  $a:int = copy 0
+  $b:int = copy 0
+  %t1:int = add $x, 1
+  $a:int = copy %t1
+  %t2:int = sub $x, 1
+  $b:int = copy %t2
+  return $a, $b
+fun compute($n:int) -> (int)
+L0:
+  $r:int = copy 0
+  $i:int = copy 0
+  $a:int = copy 0
+  $b:int = copy 0
+  $a:int, $b:int = call pair($n)
+  $i:int = copy 0
+  $r:int = copy 0
+L1:
+  %t1:bool = lt $i, $n
+  branch %t1, L2, L3
+L2:
+  %t2:bool = eq $i, 0
+  branch %t2, L4, L5
+L4:
+  %t3:int = add $r, $a
+  $r:int = copy %t3
+  jump L6
+L5:
+  %t4:int = add $r, $b
+  $r:int = copy %t4
+L6:
+  %t5:int = add $i, 1
+  $i:int = copy %t5
+  jump L1
+L3:
+  %t6:bool = gt $n, 0
+  branch %t6, L9, L8
+L9:
+  %t7:int = div 12, $n
+  %t8:bool = gt %t7, 2
+  branch %t8, L7, L8
+L7:
+  %t9:int = add $r, 1
+  $r:int = copy %t9
+L8:
+  return $r
+=== IR после оптимизаций ===
+fun pair($x:int) -> (int, int)
+L0:
+  %t1:int = add $x, 1
+  $a:int = copy %t1
+  %t2:int = sub $x, 1
+  $b:int = copy %t2
+  return $a, $b
+fun compute($n:int) -> (int)
+L0:
+  $a:int, $b:int = call pair($n)
+  $i:int = copy 0
+  $r:int = copy 0
+L1:
+  %t1:bool = lt $i, $n
+  branch %t1, L2, L3
+L2:
+  %t2:bool = eq $i, 0
+  branch %t2, L4, L5
+L4:
+  %t3:int = add $r, $a
+  $r:int = copy %t3
+  jump L6
+L5:
+  %t4:int = add $r, $b
+  $r:int = copy %t4
+L6:
+  %t5:int = add $i, 1
+  $i:int = copy %t5
+  jump L1
+L3:
+  %t6:bool = gt $n, 0
+  branch %t6, L9, L8
+L9:
+  %t7:int = div 12, $n
+  %t8:bool = gt %t7, 2
+  branch %t8, L7, L8
+L7:
+  %t9:int = add $r, 1
+  $r:int = copy %t9
+L8:
+  return $r
+=== pair ===
+CFG:
+  L0 -> []
+Граф конфликтов и цвета:
+  %t1 [0] -> []
+  %t2 [0] -> []
+Инструкции 7 -> 5, временные 2 -> 2, цвета 1 -> 1
+=== compute ===
+CFG:
+  L0 -> [L1]
+  L1 -> [L2, L3]
+  L2 -> [L4, L5]
+  L4 -> [L6]
+  L5 -> [L6]
+  L6 -> [L1]
+  L3 -> [L9, L8]
+  L9 -> [L7, L8]
+  L7 -> [L8]
+  L8 -> []
+Граф конфликтов и цвета:
+  %t1 [0] -> []
+  %t2 [0] -> []
+  %t3 [0] -> []
+  %t4 [0] -> []
+  %t5 [0] -> []
+  %t6 [0] -> []
+  %t7 [0] -> []
+  %t8 [0] -> []
+  %t9 [0] -> []
+Инструкции 27 -> 23, временные 9 -> 9, цвета 1 -> 1

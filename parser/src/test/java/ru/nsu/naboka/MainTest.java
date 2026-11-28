@@ -47,10 +47,10 @@ public class MainTest {
         assertEquals(1, run.exit());
         assertTrue(run.output().contains("(: error @"));
         assertTrue(run.errors().contains("[UNKNOWN_NAME]"));
-        Run syntax = run("f() returns r: int { r = ; }");
+        Run syntax = run("f() returns r: int { r = ; r = missing; }");
         assertEquals(1, syntax.exit());
         assertFalse(syntax.output().contains("typed-ast"));
-        assertFalse(syntax.errors().contains("UNASSIGNED_RETURN"));
+        assertFalse(syntax.errors().contains("UNKNOWN_NAME"));
     }
 
     // Неизвестный флаг, лишние аргументы и отсутствующий входной файл дают код завершения 2.

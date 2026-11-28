@@ -117,74 +117,69 @@ public final class SemanticAnalyzer {
 
     private void function(Function function) {
         Scope scope = new Scope(globals);
-        Set<Symbol> assigned = new HashSet<>();
+        Set<Symbol> readable = new HashSet<>();
         Types.Function signature = (Types.Function) bindings.get(function).type;
-        parameters(function.parameters(), signature.parameters(), scope, assigned);
-        expect(expression(function.requires(), scope, assigned), BOOL, function.requires().token(), "requires");
-        List<Symbol> returns = new ArrayList<>();
+        parameters(function.parameters(), signature.parameters(), scope, readable);
+        expect(expression(function.requires(), scope, readable), BOOL, function.requires().token(), "requires");
         for (int i = 0; i < function.returns().size(); i++) {
-            returns.add(variable(function.returns().get(i), Kind.RETURN, signature.returns().get(i), scope));
+            readable.add(variable(function.returns().get(i), Kind.RETURN, signature.returns().get(i), scope));
         }
-        Set<Symbol> contractAssigned = new HashSet<>(assigned);
-        contractAssigned.addAll(returns);
-        expect(expression(function.ensures(), scope, contractAssigned), BOOL, function.ensures().token(), "ensures");
+        expect(expression(function.ensures(), scope, readable), BOOL, function.ensures().token(), "ensures");
         List<Symbol> locals = new ArrayList<>();
         for (Variable local : function.locals()) {
-            locals.add(variable(local, Kind.LOCAL, local.type() == null ? UNKNOWN : annotation(local), scope));
+            Symbol entry = variable(local, Kind.LOCAL, local.type() == null ? UNKNOWN : annotation(local), scope);
+            locals.add(entry);
+            if (local.type() != null) readable.add(entry);
         }
-        Set<Symbol> after = statement(function.body(), scope, assigned);
+        statement(function.body(), scope, readable);
         for (Symbol entry : locals) {
             if (entry.type == UNKNOWN) error("CANNOT_INFER", entry.token,
                     "невозможно вывести тип локальной переменной '" + entry.name + "': нет корректного присваивания");
-        }
-        for (Symbol entry : returns) {
-            if (!after.contains(entry)) error("UNASSIGNED_RETURN", entry.token,
-                    "результат '" + entry.name + "' не присвоен на всех путях выполнения");
         }
     }
 
     private void formula(Formula formula) {
         Scope scope = new Scope(globals);
-        Set<Symbol> assigned = new HashSet<>();
+        Set<Symbol> readable = new HashSet<>();
         Types.Function signature = (Types.Function) bindings.get(formula).type;
-        parameters(formula.parameters(), signature.parameters(), scope, assigned);
-        expect(expression(formula.predicate(), scope, assigned), BOOL, formula.predicate().token(), "тело формулы");
+        parameters(formula.parameters(), signature.parameters(), scope, readable);
+        expect(expression(formula.predicate(), scope, readable), BOOL, formula.predicate().token(), "тело формулы");
     }
 
-    private void parameters(List<Variable> parameters, List<Type> parameterTypes, Scope scope, Set<Symbol> assigned) {
+    private void parameters(List<Variable> parameters, List<Type> parameterTypes, Scope scope, Set<Symbol> readable) {
         for (int i = 0; i < parameters.size(); i++) {
-            assigned.add(variable(parameters.get(i), Kind.PARAMETER, parameterTypes.get(i), scope));
+            readable.add(variable(parameters.get(i), Kind.PARAMETER, parameterTypes.get(i), scope));
         }
     }
 
-    private Set<Symbol> statement(Statement statement, Scope scope, Set<Symbol> assigned) {
+    private Set<Symbol> statement(Statement statement, Scope scope, Set<Symbol> readable) {
         if (statement instanceof Block block) {
             // Объявлений внутри операторов нет; новая область нужна только кванторам.
-            for (Statement child : block.statements()) assigned = statement(child, scope, assigned);
+            for (Statement child : block.statements()) readable = statement(child, scope, readable);
         } else if (statement instanceof Assignment assignment) {
-            assignment(assignment, scope, assigned);
+            assignment(assignment, scope, readable);
         } else if (statement instanceof If conditional) {
-            expect(expression(conditional.condition(), scope, assigned), BOOL, conditional.condition().token(), "условие if");
-            Set<Symbol> thenAssigned = statement(conditional.thenBranch(), scope, new HashSet<>(assigned));
-            Set<Symbol> elseAssigned = conditional.elseBranch() == null ? new HashSet<>(assigned)
-                    : statement(conditional.elseBranch(), scope, new HashSet<>(assigned));
-            // После if гарантированы только присваивания из обеих ветвей.
-            thenAssigned.retainAll(elseAssigned);
-            assigned = thenAssigned;
+            expect(expression(conditional.condition(), scope, readable), BOOL, conditional.condition().token(), "условие if");
+            Set<Symbol> thenReadable = statement(conditional.thenBranch(), scope, new HashSet<>(readable));
+            Set<Symbol> elseReadable = conditional.elseBranch() == null ? new HashSet<>(readable)
+                    : statement(conditional.elseBranch(), scope, new HashSet<>(readable));
+            // После if доступны для чтения переменные, доступные в обеих ветвях.
+            thenReadable.retainAll(elseReadable);
+            readable = thenReadable;
         } else if (statement instanceof While loop) {
-            expect(expression(loop.condition(), scope, assigned), BOOL, loop.condition().token(), "условие while");
-            expect(expression(loop.invariant(), scope, assigned), BOOL, loop.invariant().token(), "invariant");
-            statement(loop.body(), scope, new HashSet<>(assigned));
+            expect(expression(loop.condition(), scope, readable), BOOL, loop.condition().token(), "условие while");
+            expect(expression(loop.invariant(), scope, readable), BOOL, loop.invariant().token(), "invariant");
+            statement(loop.body(), scope, new HashSet<>(readable));
         } else if (statement instanceof Assertion assertion) {
-            expect(expression(assertion.predicate(), scope, assigned), BOOL, assertion.predicate().token(), assertion.kind());
+            expect(expression(assertion.predicate(), scope, readable), BOOL, assertion.predicate().token(), assertion.kind());
         } else {
             throw new IllegalArgumentException("Неизвестный оператор AST: " + statement.getClass().getName());
         }
-        return assigned;
+        return readable;
     }
 
-    private void assignment(Assignment assignment, Scope scope, Set<Symbol> assigned) {
-        Type value = expression(assignment.value(), scope, assigned);
+    private void assignment(Assignment assignment, Scope scope, Set<Symbol> readable) {
+        Type value = expression(assignment.value(), scope, readable);
         List<Type> values = value instanceof Types.Tuple tuple ? tuple.elements() : List.of(value);
         boolean arityMatches = value == ERROR || values.size() == assignment.targets().size();
         if (!arityMatches) error("RESULT_COUNT", assignment.token(),
@@ -193,7 +188,7 @@ public final class SemanticAnalyzer {
         for (int i = 0; i < assignment.targets().size(); i++) {
             Expr target = assignment.targets().get(i);
             if (!(target instanceof Name name)) {
-                expression(target, scope, assigned);
+                expression(target, scope, readable);
                 error("INVALID_TARGET", target.token(), "цель присваивания должна быть именем переменной");
                 continue;
             }
@@ -223,12 +218,12 @@ public final class SemanticAnalyzer {
             } else {
                 entry.type = unified;
                 types.put(target, unified);
-                assigned.add(entry);
+                readable.add(entry);
             }
         }
     }
 
-    private Type expression(Expr expression, Scope scope, Set<Symbol> assigned) {
+    private Type expression(Expr expression, Scope scope, Set<Symbol> readable) {
         Type type;
         if (expression instanceof Ast.Number) type = INT;
         else if (expression instanceof Bool) type = BOOL;
@@ -238,28 +233,28 @@ public final class SemanticAnalyzer {
             else if (!isVariable(entry)) {
                 error("NOT_VARIABLE", name.token(), "'" + name.value() + "' не является переменной");
                 type = ERROR;
-            } else if (!assigned.contains(entry)) {
+            } else if (!readable.contains(entry)) {
                 error("USE_BEFORE_ASSIGNMENT", name.token(), "переменная '" + name.value() + "' используется до присваивания");
                 type = ERROR;
             } else type = entry.type;
         } else if (expression instanceof Unary unary) {
-            Type operand = expression(unary.operand(), scope, assigned);
+            Type operand = expression(unary.operand(), scope, readable);
             Type expected = unary.operator().equals("-") ? INT : BOOL;
             type = expect(operand, expected, unary.token(), "оператор '" + unary.operator() + "'") ? expected : ERROR;
         } else if (expression instanceof Binary binary) {
-            type = binary(binary, scope, assigned);
+            type = binary(binary, scope, readable);
         } else if (expression instanceof Call call) {
-            type = call(call, scope, assigned);
+            type = call(call, scope, readable);
         } else if (expression instanceof Access access) {
-            Type array = expression(access.array(), scope, assigned);
-            Type index = expression(access.index(), scope, assigned);
+            Type array = expression(access.array(), scope, readable);
+            Type index = expression(access.index(), scope, readable);
             boolean arrayOk = expect(array, INT_ARRAY, access.array().token(), "индексируемое значение");
             boolean indexOk = expect(index, INT, access.index().token(), "индекс массива");
             type = arrayOk && indexOk ? INT : ERROR;
         } else if (expression instanceof Update update) {
-            Type array = expression(update.array(), scope, assigned);
-            Type index = expression(update.index(), scope, assigned);
-            Type value = expression(update.value(), scope, assigned);
+            Type array = expression(update.array(), scope, readable);
+            Type index = expression(update.index(), scope, readable);
+            Type value = expression(update.value(), scope, readable);
             boolean arrayOk = expect(array, INT_ARRAY, update.array().token(), "обновляемый массив");
             boolean indexOk = expect(index, INT, update.index().token(), "индекс массива");
             boolean valueOk = expect(value, INT, update.value().token(), "элемент массива");
@@ -267,9 +262,9 @@ public final class SemanticAnalyzer {
         } else if (expression instanceof Quantified quantified) {
             Scope nested = new Scope(scope);
             Symbol entry = variable(quantified.variable(), Kind.QUANTIFIED, annotation(quantified.variable()), nested);
-            Set<Symbol> nestedAssigned = new HashSet<>(assigned);
-            nestedAssigned.add(entry);
-            Type body = expression(quantified.body(), nested, nestedAssigned);
+            Set<Symbol> nestedReadable = new HashSet<>(readable);
+            nestedReadable.add(entry);
+            Type body = expression(quantified.body(), nested, nestedReadable);
             type = expect(body, BOOL, quantified.body().token(), "тело квантора") ? BOOL : ERROR;
         } else {
             throw new IllegalArgumentException("Неизвестное выражение AST: " + expression.getClass().getName());
@@ -278,9 +273,9 @@ public final class SemanticAnalyzer {
         return type;
     }
 
-    private Type binary(Binary binary, Scope scope, Set<Symbol> assigned) {
-        Type left = expression(binary.left(), scope, assigned);
-        Type right = expression(binary.right(), scope, assigned);
+    private Type binary(Binary binary, Scope scope, Set<Symbol> readable) {
+        Type left = expression(binary.left(), scope, readable);
+        Type right = expression(binary.right(), scope, readable);
         String context = "оператор '" + binary.operator() + "'";
         if (binary.operator().equals("==") || binary.operator().equals("!=")) {
             if (left == ERROR || right == ERROR) return ERROR;
@@ -298,9 +293,9 @@ public final class SemanticAnalyzer {
         return leftOk && rightOk ? (arithmetic ? INT : BOOL) : ERROR;
     }
 
-    private Type call(Call call, Scope scope, Set<Symbol> assigned) {
+    private Type call(Call call, Scope scope, Set<Symbol> readable) {
         List<Type> arguments = new ArrayList<>();
-        for (Expr argument : call.arguments()) arguments.add(expression(argument, scope, assigned));
+        for (Expr argument : call.arguments()) arguments.add(expression(argument, scope, readable));
         Symbol entry = resolve(call.name(), call, scope);
         if (entry == null) return ERROR;
         if (!(entry.type instanceof Types.Function function)) {
@@ -336,6 +331,10 @@ public final class SemanticAnalyzer {
         Symbol entry = new Symbol(symbols.size(), name, kind, type, token);
         symbols.add(entry);
         Symbol previous = scope.entries.putIfAbsent(name, entry);
+        if (previous == null && kind == Kind.QUANTIFIED) {
+            Symbol outer = scope.parent.find(name);
+            if (outer != null && isVariable(outer)) previous = outer;
+        }
         if (previous != null) error("DUPLICATE_NAME", token,
                 "повторное объявление '" + name + "'; первое объявление в " + previous.token.location());
         return entry;

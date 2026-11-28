@@ -102,22 +102,36 @@ public class SemanticAnalyzerTest {
         valid("f(x: int) requires x > 0 returns r: int ensures r >= x { r = x; }");
     }
 
-    // Квантор создаёт отдельный символ и может затенить параметр; его переменная не видна снаружи.
+    // Квантор создаёт отдельный символ, который доступен только внутри его тела.
     @Test
-    public void scopesQuantifiersAndAllowsShadowing() {
-        SemanticAnalyzer.Result result = valid("p(x: int) => exists(x: int | x > 0) and x > 0;");
-        List<SemanticAnalyzer.Symbol> xs = result.symbols().stream().filter(s -> s.name().equals("x")).toList();
-        assertEquals(2, xs.size());
-        assertNotEquals(xs.get(0).id(), xs.get(1).id());
+    public void scopesQuantifiedVariablesToTheirBodies() {
+        SemanticAnalyzer.Result result = valid("p(x: int) => exists(i: int | i > x) and x > 0;");
         Formula formula = (Formula) result.module().declarations().get(0);
         Binary and = (Binary) formula.predicate();
         Quantified quantified = (Quantified) and.left();
         Name inner = (Name) ((Binary) quantified.body()).left();
         Name outer = (Name) ((Binary) and.right()).left();
-        assertEquals(xs.get(1), result.bindings().get(inner));
-        assertEquals(xs.get(0), result.bindings().get(outer));
+        assertSame(result.bindings().get(quantified.variable()), result.bindings().get(inner));
+        assertSame(result.bindings().get(formula.parameters().get(0)), result.bindings().get(outer));
+        valid("p() => exists(i: int | i > 0) and forall(i: int | i == i);");
         hasError("p() => exists(i: int | i > 0) and i > 0;", "UNKNOWN_NAME");
         hasError("p() => exists(i: int | i > 0); q() => i > 0;", "UNKNOWN_NAME");
+    }
+
+    @Test
+    public void rejectsQuantifiersThatRedeclareVisibleVariables() {
+        for (String source : List.of(
+                "f(a: int) requires forall(a: int | a > 0) returns r: int { r = 0; }",
+                "f() returns a: int[] ensures exists(a: int | a > 0) {}",
+                "f() returns r: int uses a: int { assert forall(a: int | a > 0); }",
+                "p(a: int) => exists(a: int | a > 0);",
+                "p() => forall(a: int | exists(a: int | a > 0));")) {
+            SemanticAnalyzer.Result result = check(source);
+            assertEquals(source, List.of("DUPLICATE_NAME"), codes(result));
+            SemanticAnalyzer.Diagnostic diagnostic = result.diagnostics().get(0);
+            assertEquals("a", diagnostic.token().text());
+            assertEquals(source.lastIndexOf("a:"), diagnostic.token().offset());
+        }
     }
 
     // Необъявленное имя даёт UNKNOWN_NAME при чтении, записи и вызове.
@@ -137,43 +151,31 @@ public class SemanticAnalyzerTest {
         hasError("g() returns r: int { r = 1; } f(g: int) returns r: int { r = g(); }", "NOT_CALLABLE");
     }
 
-    // Локальные и результаты нельзя читать до присваивания, даже если их тип указан явно.
     @Test
-    public void requiresDefiniteAssignmentIncludingTypedLocalsAndResults() {
-        hasError("f() returns r: int uses x: int { r = x; }", "USE_BEFORE_ASSIGNMENT");
-        hasError("f() returns r: int { r = r + 1; }", "USE_BEFORE_ASSIGNMENT");
-        hasError("f() returns r: int uses x { x = x + 1; r = 0; }", "CANNOT_INFER");
-        hasError("f() returns r: int {}", "UNASSIGNED_RETURN");
-        valid("f() returns r: int { r = 0; r = r + 1; }");
+    public void readsExplicitlyTypedVariablesBeforeAssignment() {
+        valid("f() returns r: int uses x: int { r = x; }");
+        valid("f() returns r: int { r = r + 1; }");
+        valid("f() returns r: int uses a: int[] { r = a[0]; }");
     }
 
-    // Каждый результат должен получить значение своего типа на всех путях к концу функции.
     @Test
-    public void checksReturnTypesAndAssignmentOnEveryPath() {
-        // Присваивание массива в результат int ошибочно и не считается корректной инициализацией.
-        assertEquals(List.of("TYPE_MISMATCH", "UNASSIGNED_RETURN"),
+    public void checksReturnTypesWithoutRequiringAssignments() {
+        assertEquals(List.of("TYPE_MISMATCH"),
                 codes(check("f(a: int[]) returns r: int { r = a; }")));
-        // Без else есть путь, на котором результат не присваивается.
-        assertEquals(List.of("UNASSIGNED_RETURN"),
-                codes(check("f(x: int) returns r: int { if (x > 0) r = 1; }")));
-        // Присваивания в обеих ветвях гарантируют наличие результата после if.
-        valid("f(x: int) returns r: int { if (x > 0) r = 1; else r = 0; }");
-        // При нескольких результатах нужно присвоить каждый из них.
-        assertEquals(List.of("UNASSIGNED_RETURN"),
-                codes(check("f() returns a: int, b: int { a = 1; }")));
-        // Инициализация до цикла достаточна, даже если цикл не выполнится.
-        valid("f() returns r: int { r = 0; while (r < 3) r = r + 1; }");
+        valid("f() returns r: int ensures r >= 0 {}");
+        valid("f(x: int) returns r: int { if (x > 0) r = 1; }");
+        valid("f(x: int) returns r: int { while (x > 0) r = 1; }");
+        valid("f() returns a: int, b: int { a = 1; }");
     }
 
-    // После if остаётся пересечение assigned ветвей; тело while не гарантирует присваивания после цикла.
+    // Для локальной без аннотации чтение требует присваивания на каждом пути к нему.
     @Test
-    public void checksBothBranchesAndDoesNotAssumeLoopsExecute() {
+    public void checksDefiniteAssignmentForLocalsWithoutTypeAnnotations() {
         valid("f(x: int) returns r: int uses y { if (x > 0) y = 1; else y = 2; r = y; }");
         hasError("f(x: int) returns r: int uses y { if (x > 0) y = 1; r = y; }", "USE_BEFORE_ASSIGNMENT");
         hasError("f(x: int) returns r: int uses y { if (x > 0) y = 1; else r = y; r = 0; }",
                 "USE_BEFORE_ASSIGNMENT");
         hasError("f() returns r: int uses y { while (true) y = 1; r = y; }", "USE_BEFORE_ASSIGNMENT");
-        hasError("f() returns r: int { while (true) r = 1; }", "UNASSIGNED_RETURN");
         valid("f() returns r: int uses y { y = 0; while (y < 3) y = y + 1; r = y; }");
     }
 
@@ -207,6 +209,7 @@ public class SemanticAnalyzerTest {
         hasError("f(a: int[]) returns r: int uses x { if (true) x = 1; else x = a; r = 0; }", "TYPE_MISMATCH");
         hasError("f() returns r: int uses x { r = 0; }", "CANNOT_INFER");
         hasError("f() returns r: int uses x, y { x = y; y = 1; r = 0; }", "CANNOT_INFER");
+        hasError("f() returns r: int uses x { x = x + 1; r = 0; }", "CANNOT_INFER");
     }
 
     // Арифметика и сравнения порядка требуют int; равенство допускает одинаковые типы, включая int[].
@@ -341,7 +344,7 @@ public class SemanticAnalyzerTest {
     @Test
     public void errorTypesSuppressCascadesAndDoNotLeakBetweenRuns() {
         SemanticAnalyzer.Result result = check("f() returns r: int { r = (missing + 1) * 2; }");
-        assertEquals(List.of("UNKNOWN_NAME", "UNASSIGNED_RETURN"), codes(result));
+        assertEquals(List.of("UNKNOWN_NAME"), codes(result));
         assertTrue(result.types().containsValue(ERROR));
         valid("f() returns r: int { r = 1; }");
     }

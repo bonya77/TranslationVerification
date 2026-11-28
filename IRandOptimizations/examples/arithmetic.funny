@@ -1,0 +1,5 @@
+calc(x: int, y: int) returns r: int uses k, dead {
+  k = 2 + 3;
+  dead = (x + 10) * ((y + 2) * (x - 1));
+  r = (x + 0) * k + (y - 1) * 1;
+}

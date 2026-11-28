@@ -1,0 +1,41 @@
+=== IR до оптимизаций ===
+fun calc($x:int, $y:int) -> (int)
+L0:
+  $r:int = copy 0
+  $k:int = copy 0
+  $dead:int = copy 0
+  %t1:int = add 2, 3
+  $k:int = copy %t1
+  %t2:int = add $x, 10
+  %t3:int = add $y, 2
+  %t4:int = sub $x, 1
+  %t5:int = mul %t3, %t4
+  %t6:int = mul %t2, %t5
+  $dead:int = copy %t6
+  %t7:int = add $x, 0
+  %t8:int = mul %t7, $k
+  %t9:int = sub $y, 1
+  %t10:int = mul %t9, 1
+  %t11:int = add %t8, %t10
+  $r:int = copy %t11
+  return $r
+=== IR после оптимизаций ===
+fun calc($x:int, $y:int) -> (int)
+L0:
+  %t7:int = copy $x
+  %t8:int = mul %t7, 5
+  %t9:int = sub $y, 1
+  %t10:int = copy %t9
+  %t11:int = add %t8, %t10
+  $r:int = copy %t11
+  return $r
+=== calc ===
+CFG:
+  L0 -> []
+Граф конфликтов и цвета:
+  %t7 [0] -> []
+  %t8 [0] -> [%t10, %t9]
+  %t9 [1] -> [%t8]
+  %t10 [1] -> [%t8]
+  %t11 [0] -> []
+Инструкции 18 -> 7, временные 11 -> 5, цвета 3 -> 2
